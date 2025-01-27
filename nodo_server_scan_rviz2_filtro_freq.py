@@ -71,6 +71,18 @@ class TcpLaserScanNode(Node):
             self.get_logger().error(f"Errore durante l'avvio del server TCP: {e}")
             self.destroy_node()
 
+    def set_lidar_frequency(self, pwm_value):
+        if self.client_socket:
+            try:
+                command = f"SET_FREQ {pwm_value}\n"
+                self.client_socket.sendall(command.encode('utf-8'))
+                self.get_logger().info(f"Comando inviato al client: {command.strip()}")
+            except Exception as e:
+                self.get_logger().error(f"Errore durante l'invio del comando: {e}")
+        else:
+            self.get_logger().warn("Nessun client connesso. Impossibile inviare il comando.")
+
+
     def receive_data(self):
         if self.client_socket:
             try:
@@ -108,13 +120,18 @@ class TcpLaserScanNode(Node):
                 try:
                     angle = float(scan_data['angle'])
                     distance = float(scan_data['distance'])
-
-                    # Converti l'angolo in radianti
+                    
+                     # Converti l'angolo in radianti
                     angle_rad = angle * (math.pi / 180.0)
 
                     # Calcola l'indice corrispondente nell'array ranges
                     index = int((angle_rad - self.angle_min) / self.angle_increment)
 
+                    if self.range_min <= distance <= self.range_max:
+                        self.ranges[index] = distance
+                    else:
+                        self.ranges[index] = float('inf')
+                   
                     # Assicura che l'indice sia valido
                     if 0 <= index < len(self.ranges):
                         # Aggiorna solo l'indice corrispondente
@@ -140,6 +157,13 @@ class TcpLaserScanNode(Node):
 
                 except KeyError as e:
                     self.get_logger().error(f"Chiave mancante nel messaggio scan: {e}")
+            elif 'comando' in message_json:
+                comando_ricevuto = message_json['comando']  # Ad esempio "modifica_frequenza"
+            
+                if comando_ricevuto == 'modifica_frequenza':
+                    self.set_lidar_frequency(100)  # Imposta la frequenza del Lidar al valore desiderato
+
+            
             else:
                 self.get_logger().error("Chiave 'scan' mancante nel messaggio JSON.")
         except json.JSONDecodeError as e:
